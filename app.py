@@ -43,29 +43,40 @@ def video(search: str = Query(...)):
     except Exception as e:
         return {"result": f"Error: {e}"}
 
-# Fetch lyrics from Genius
+# New lyrics route using YouTube auto subtitles
 @app.get("/lyrics")
 def lyrics(song: str = Query(...)):
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
-        search_url = f"https://genius.com/api/search/multi?per_page=1&q={song}"
-        res = requests.get(search_url, headers=headers)
-        if res.status_code == 403:
-            return {"lyrics": "Error: Genius blocked access (403)"}
-        response = res.json()
-        hits = response['response']['sections'][0]['hits']
-        if not hits:
-            return {"lyrics": "Lyrics not found."}
-        song_path = hits[0]['result']['path']
-        song_url = f"https://genius.com{song_path}"
-        page = requests.get(song_url, headers=headers)
-        soup = BeautifulSoup(page.text, "html.parser")
-        lyrics_tag = soup.find("div", {"data-lyrics-container": "true"})
-        if lyrics_tag:
-            lyrics = lyrics_tag.get_text(separator="\n")
-            return {"lyrics": lyrics}
-        return {"lyrics": "Lyrics found but could not parse."}
+        search_url = f"ytsearch1:{song} lyrics"
+        output_path = "%(title)s.%(ext)s"
+
+        # Download auto subtitles only
+        cmd = [
+            "yt-dlp", "--cookies", COOKIES, "--write-auto-sub", "--sub-lang", "en",
+            "--skip-download", "-o", output_path, search_url
+        ]
+        subprocess.run(cmd, check=True)
+
+        # Find the .vtt file
+        vtt_file = next((f for f in os.listdir() if f.endswith(".en.vtt")), None)
+        if not vtt_file:
+            return {"lyrics": "No subtitles/lyrics found for this song."}
+
+        # Parse the .vtt file
+        def parse_vtt(file_path):
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            text = ""
+            for line in lines:
+                if "-->" not in line and line.strip() != "" and not line.strip().startswith("WEBVTT"):
+                    text += line.strip() + " "
+            return text.strip()
+
+        lyrics_text = parse_vtt(vtt_file)
+
+        # Clean up downloaded .vtt file
+        os.remove(vtt_file)
+
+        return {"lyrics": lyrics_text}
     except Exception as e:
         return {"lyrics": f"Error: {e}"}
