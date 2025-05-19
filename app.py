@@ -1,22 +1,25 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from lyrics import get_lyrics
 from downloader import download_song
-from fastapi.responses import FileResponse
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
 
 app = FastAPI()
 
-@app.get("/lyrics/")
-async def lyrics_endpoint(song: str):
-    try:
-        lyrics = await get_lyrics(song)
-        return {"lyrics": lyrics}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching lyrics: {str(e)}")
+@app.get("/")
+async def root():
+    return {"status": "Spotify API running"}
 
-@app.get("/play/")
-async def play_song(song: str):
-    try:
-        filepath = await download_song(song)
-        return FileResponse(filepath, media_type="audio/mpeg", filename=f"{song}.mp3")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error playing song: {str(e)}")
+@app.get("/lyrics")
+async def lyrics(song: str):
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor() as pool:
+        result = await loop.run_in_executor(pool, get_lyrics, song)
+    return {"lyrics": result}
+
+@app.get("/play")
+async def play(song: str):
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor() as pool:
+        result = await loop.run_in_executor(pool, download_song, song)
+    return {"result": result}
