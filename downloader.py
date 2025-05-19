@@ -1,24 +1,21 @@
 import yt_dlp
-import os
-import asyncio
 
-async def download_song(song_name: str) -> str:
-    filename = f"{song_name}.mp3"
+def download_song(song_name):
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': filename,
+        'noplaylist': True,
         'quiet': True,
+        'outtmpl': f'{song_name}.mp3',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
-        }],
+        }]
     }
 
-    # Run youtube-dl synchronously in a thread to not block event loop
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).download([f"ytsearch1:{song_name}"]))
-
-    if not os.path.exists(filename):
-        raise Exception("Download failed.")
-    return filename
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch:{song_name}", download=True)['entries'][0]
+            return f"{song_name}.mp3 downloaded successfully!"
+    except Exception as e:
+        return f"Error downloading song: {str(e)}"
