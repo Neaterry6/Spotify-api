@@ -1,9 +1,9 @@
 fastapi
 uvicorn
-transformers
-torch
+pydantic
+requests
+beautifulsoup4
+yt-dlp
+python-multipart
 pillow
 pytesseract
-yt-dlp
-bs4
-requests
