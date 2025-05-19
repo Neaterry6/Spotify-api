@@ -1,16 +1,24 @@
-def get_lyrics(track):
-    # Dummy implementation for example
-    # Replace with real lyrics fetch code or API
-    dummy_lyrics = {
-        "Imagine": "Imagine all the people...",
-        "Hello": "Hello, it's me..."
-    }
-    return dummy_lyrics.get(track, "")
+import yt_dlp
+import os
+import asyncio
 
-def download_song(track):
-    # Dummy implementation for example
-    # Replace with real download logic or API
-    return {
-        "message": f"Song '{track}' downloaded successfully.",
-        "download_link": f"https://example.com/downloads/{track.replace(' ', '_')}.mp3"
+async def download_song(song_name: str) -> str:
+    filename = f"{song_name}.mp3"
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': filename,
+        'quiet': True,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
     }
+
+    # Run youtube-dl synchronously in a thread to not block event loop
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).download([f"ytsearch1:{song_name}"]))
+
+    if not os.path.exists(filename):
+        raise Exception("Download failed.")
+    return filename
