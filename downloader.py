@@ -1,18 +1,16 @@
-import subprocess
+def get_lyrics(track):
+    # Dummy implementation for example
+    # Replace with real lyrics fetch code or API
+    dummy_lyrics = {
+        "Imagine": "Imagine all the people...",
+        "Hello": "Hello, it's me..."
+    }
+    return dummy_lyrics.get(track, "")
 
-def download_song(query):
-    try:
-        result = subprocess.run(
-            ["spotdl", query],
-            capture_output=True,
-            text=True
-        )
-        return {
-            "status": "success",
-            "output": result.stdout
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        
+def download_song(track):
+    # Dummy implementation for example
+    # Replace with real download logic or API
+    return {
+        "message": f"Song '{track}' downloaded successfully.",
+        "download_link": f"https://example.com/downloads/{track.replace(' ', '_')}.mp3"
+    }
