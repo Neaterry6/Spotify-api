@@ -10,7 +10,6 @@ import os
 app = FastAPI()
 
 COOKIES = "cookies.txt"  # your yt-dlp cookies file path
-
 API_KEY = "423c0305-cf71-48dc-b57f-693399ce53d1"
 API_BASE = "https://kaiz-apis.gleeze.com/api/gpt-3.5"
 
@@ -89,25 +88,26 @@ def lyrics(song: str = Query(...)):
         return {"lyrics": f"Error: {e}"}
 
 # Chat route using external GPT-3.5 API with image generation support
-@app.post("/chat")
-async def chat(prompt: str = Form(...)):
+@app.api_route("/chat", methods=["GET", "POST"])
+async def chat(prompt: str = Query(None), prompt_form: str = Form(None)):
     try:
+        prompt_value = prompt or prompt_form
+        if not prompt_value:
+            return JSONResponse(status_code=400, content={"error": "No prompt provided."})
+
         params = {
-            "q": prompt,
+            "q": prompt_value,
             "apikey": API_KEY
         }
         response = requests.get(API_BASE, params=params)
         data = response.json()
 
-        # Check if response includes image URLs
         if "image" in data:
-            # Return text + image URLs
             return {
                 "response": data.get("response", ""),
-                "images": data.get("image")  # could be a list or single URL
+                "images": data.get("image")
             }
         else:
-            # Just text reply
             return {"response": data.get("response", "Sorry, no reply from API.")}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
