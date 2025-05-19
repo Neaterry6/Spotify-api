@@ -1,12 +1,19 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, File, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
-import subprocess, os, requests
-from bs4 import BeautifulSoup
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
+from PIL import Image
+import pytesseract
+import io
+import subprocess, os
 
 app = FastAPI()
 
 COOKIES = "cookies.txt"
+
+# Initialize AI chat model/tokenizer once
+tokenizer = AutoTokenizer.from_pretrained("gpt2")
+model = AutoModelForCausalLM.from_pretrained("gpt2")
 
 # Download audio from YouTube
 @app.get("/play")
@@ -43,7 +50,7 @@ def video(search: str = Query(...)):
     except Exception as e:
         return {"result": f"Error: {e}"}
 
-# New lyrics route using YouTube auto subtitles
+# Lyrics route - fixed to handle multiple subtitle extensions
 @app.get("/lyrics")
 def lyrics(song: str = Query(...)):
     try:
@@ -57,26 +64,71 @@ def lyrics(song: str = Query(...)):
         ]
         subprocess.run(cmd, check=True)
 
-        # Find the .vtt file
-        vtt_file = next((f for f in os.listdir() if f.endswith(".en.vtt")), None)
-        if not vtt_file:
+        # Try to find a subtitle file with common extensions
+        subtitle_file = None
+        for ext in [".en.vtt", ".en.srt", ".vtt", ".srt"]:
+            candidates = [f for f in os.listdir() if f.endswith(ext)]
+            if candidates:
+                subtitle_file = candidates[0]
+                break
+
+        if not subtitle_file:
             return {"lyrics": "No subtitles/lyrics found for this song."}
 
-        # Parse the .vtt file
-        def parse_vtt(file_path):
+        # Parse subtitle text (works for .vtt and .srt)
+        def parse_subtitles(file_path):
             with open(file_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             text = ""
             for line in lines:
-                if "-->" not in line and line.strip() != "" and not line.strip().startswith("WEBVTT"):
-                    text += line.strip() + " "
+                line = line.strip()
+                if line == "" or line.startswith("WEBVTT") or line[0].isdigit() or "-->" in line:
+                    continue
+                text += line + " "
             return text.strip()
 
-        lyrics_text = parse_vtt(vtt_file)
+        lyrics_text = parse_subtitles(subtitle_file)
 
-        # Clean up downloaded .vtt file
-        os.remove(vtt_file)
+        # Clean up downloaded subtitle file
+        os.remove(subtitle_file)
 
         return {"lyrics": lyrics_text}
     except Exception as e:
         return {"lyrics": f"Error: {e}"}
+
+# AI Chat route
+@app.post("/chat")
+async def chat(prompt: str = Form(...)):
+    try:
+        input_ids = tokenizer.encode(prompt, return_tensors="pt")
+        output_ids = model.generate(
+            input_ids,
+            max_length=150,
+            num_return_sequences=1,
+            no_repeat_ngram_size=2,
+            pad_token_id=tokenizer.eos_token_id,
+            do_sample=True,
+            top_k=50,
+            top_p=0.95,
+            temperature=0.7
+        )
+        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        reply = response[len(prompt):].strip()
+        if not reply:
+            reply = "Sorry, I couldn't generate a response."
+        return {"response": reply}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+# OCR route to extract text from uploaded image
+@app.post("/ocr")
+async def ocr_image(file: UploadFile = File(...)):
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents))
+        text = pytesseract.image_to_string(image).strip()
+        if not text:
+            text = "No text found in the image."
+        return {"extracted_text": text}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
