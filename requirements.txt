@@ -1,6 +1,9 @@
 fastapi
 uvicorn
+transformers
+torch
+pillow
+pytesseract
 yt-dlp
+bs4
 requests
-beautifulsoup4
-lxml
