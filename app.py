@@ -12,4 +12,4 @@ def download_endpoint(q: str = Query(..., description="Song name")):
 @app.get("/lyrics")
 def lyrics_endpoint(q: str = Query(..., description="Song name")):
     lyrics = get_lyrics(q)
-    return {"lyrics": lyrics
+    return {"lyrics": lyrics}
