@@ -1,9 +1,8 @@
-fastapi
-uvicorn
-pydantic
-requests
-beautifulsoup4
-yt-dlp
-python-multipart
-pillow
-pytesseract
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+transformers==4.30.2
+torch==2.0.1
+pillow==10.0.0
+pytesseract==0.3.10
+requests==2.31.0
+yt-dlp==2023.12.12
