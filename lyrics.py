@@ -12,9 +12,10 @@ def get_lyrics(song_name):
         song_url = f"https://genius.com{song_path}"
         page = requests.get(song_url)
         soup = BeautifulSoup(page.text, "html.parser")
-        lyrics = soup.find("div", {"data-lyrics-container": "true"})
-        if lyrics:
-            return lyrics.get_text(separator="\n")
+        lyrics_divs = soup.find_all("div", {"data-lyrics-container": "true"})
+        if lyrics_divs:
+            lyrics = "\n".join([div.get_text(separator="\n") for div in lyrics_divs])
+            return lyrics
         return "Lyrics found but could not parse."
     except Exception as e:
         return f"Error fetching lyrics: {str(e)}"
