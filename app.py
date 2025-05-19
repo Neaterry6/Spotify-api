@@ -1,23 +1,31 @@
 from fastapi import FastAPI, Query, File, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
 from PIL import Image
 import pytesseract
 import io
-import subprocess, os
+import subprocess
+import os
+import requests
 
 app = FastAPI()
 
 COOKIES = "cookies.txt"
+KAIZ_API_KEY = "423c0305-cf71-48dc-b57f-693399ce53d1"
+KAIZ_API_URL = "https://kaiz-apis.gleeze.com/api/gpt-3.5"
 
-# Initialize AI chat model/tokenizer once
-tokenizer = AutoTokenizer.from_pretrained("gpt2")
-model = AutoModelForCausalLM.from_pretrained("gpt2")
+# Helper to clean old media files after request (optional)
+def cleanup_files(extensions=[".mp3", ".mp4", ".vtt", ".srt"]):
+    for f in os.listdir():
+        if any(f.endswith(ext) for ext in extensions):
+            try:
+                os.remove(f)
+            except:
+                pass
 
 # Download audio from YouTube
 @app.get("/play")
 def play(song: str = Query(...)):
+    cleanup_files()
     try:
         search_url = f"ytsearch1:{song}"
         output_path = "audio.%(ext)s"
@@ -36,6 +44,7 @@ def play(song: str = Query(...)):
 # Download video from YouTube
 @app.get("/video")
 def video(search: str = Query(...)):
+    cleanup_files()
     try:
         search_url = f"ytsearch1:{search}"
         output_path = "video.%(ext)s"
@@ -50,21 +59,20 @@ def video(search: str = Query(...)):
     except Exception as e:
         return {"result": f"Error: {e}"}
 
-# Lyrics route - fixed to handle multiple subtitle extensions
+# Lyrics fetching
 @app.get("/lyrics")
 def lyrics(song: str = Query(...)):
+    cleanup_files()
     try:
         search_url = f"ytsearch1:{song} lyrics"
         output_path = "%(title)s.%(ext)s"
 
-        # Download auto subtitles only
         cmd = [
             "yt-dlp", "--cookies", COOKIES, "--write-auto-sub", "--sub-lang", "en",
             "--skip-download", "-o", output_path, search_url
         ]
         subprocess.run(cmd, check=True)
 
-        # Try to find a subtitle file with common extensions
         subtitle_file = None
         for ext in [".en.vtt", ".en.srt", ".vtt", ".srt"]:
             candidates = [f for f in os.listdir() if f.endswith(ext)]
@@ -75,7 +83,6 @@ def lyrics(song: str = Query(...)):
         if not subtitle_file:
             return {"lyrics": "No subtitles/lyrics found for this song."}
 
-        # Parse subtitle text (works for .vtt and .srt)
         def parse_subtitles(file_path):
             with open(file_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -88,39 +95,13 @@ def lyrics(song: str = Query(...)):
             return text.strip()
 
         lyrics_text = parse_subtitles(subtitle_file)
-
-        # Clean up downloaded subtitle file
         os.remove(subtitle_file)
 
         return {"lyrics": lyrics_text}
     except Exception as e:
         return {"lyrics": f"Error: {e}"}
 
-# AI Chat route
-@app.post("/chat")
-async def chat(prompt: str = Form(...)):
-    try:
-        input_ids = tokenizer.encode(prompt, return_tensors="pt")
-        output_ids = model.generate(
-            input_ids,
-            max_length=150,
-            num_return_sequences=1,
-            no_repeat_ngram_size=2,
-            pad_token_id=tokenizer.eos_token_id,
-            do_sample=True,
-            top_k=50,
-            top_p=0.95,
-            temperature=0.7
-        )
-        response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        reply = response[len(prompt):].strip()
-        if not reply:
-            reply = "Sorry, I couldn't generate a response."
-        return {"response": reply}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-# OCR route to extract text from uploaded image
+# OCR to extract text from uploaded image
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...)):
     try:
@@ -130,5 +111,29 @@ async def ocr_image(file: UploadFile = File(...)):
         if not text:
             text = "No text found in the image."
         return {"extracted_text": text}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+# Chatbot using Kaiz API GPT-3.5 with image generation
+@app.post("/chat")
+async def chat(prompt: str = Form(...)):
+    try:
+        params = {
+            "q": prompt,
+            "apikey": KAIZ_API_KEY
+        }
+        response = requests.get(KAIZ_API_URL, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            text_response = data.get("response") or ""
+            image_url = data.get("image")  # If API returns an image URL
+
+            result = {"response": text_response}
+            if image_url:
+                result["image_url"] = image_url
+
+            return result
+        else:
+            return JSONResponse(status_code=500, content={"error": "AI API request failed."})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
