@@ -17,4 +17,4 @@ def get_lyrics(song_name):
             return lyrics.get_text(separator="\n")
         return "Lyrics found but could not parse."
     except Exception as e:
-        return f"Error fetching lyrics: {str(e)}
+        return f"Error fetching lyrics: {str(e)}"
