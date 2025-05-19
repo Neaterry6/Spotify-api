@@ -1,5 +1,6 @@
 fastapi
 uvicorn
 yt-dlp
-beautifulsoup4
 requests
+beautifulsoup4
+lxml
