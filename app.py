@@ -1,31 +1,22 @@
 from fastapi import FastAPI, Query, File, UploadFile, Form
 from fastapi.responses import FileResponse, JSONResponse
+import requests
 from PIL import Image
 import pytesseract
 import io
 import subprocess
 import os
-import requests
 
 app = FastAPI()
 
-COOKIES = "cookies.txt"
-KAIZ_API_KEY = "423c0305-cf71-48dc-b57f-693399ce53d1"
-KAIZ_API_URL = "https://kaiz-apis.gleeze.com/api/gpt-3.5"
+COOKIES = "cookies.txt"  # your yt-dlp cookies file path
 
-# Helper to clean old media files after request (optional)
-def cleanup_files(extensions=[".mp3", ".mp4", ".vtt", ".srt"]):
-    for f in os.listdir():
-        if any(f.endswith(ext) for ext in extensions):
-            try:
-                os.remove(f)
-            except:
-                pass
+API_KEY = "423c0305-cf71-48dc-b57f-693399ce53d1"
+API_BASE = "https://kaiz-apis.gleeze.com/api/gpt-3.5"
 
 # Download audio from YouTube
 @app.get("/play")
 def play(song: str = Query(...)):
-    cleanup_files()
     try:
         search_url = f"ytsearch1:{song}"
         output_path = "audio.%(ext)s"
@@ -44,7 +35,6 @@ def play(song: str = Query(...)):
 # Download video from YouTube
 @app.get("/video")
 def video(search: str = Query(...)):
-    cleanup_files()
     try:
         search_url = f"ytsearch1:{search}"
         output_path = "video.%(ext)s"
@@ -59,14 +49,12 @@ def video(search: str = Query(...)):
     except Exception as e:
         return {"result": f"Error: {e}"}
 
-# Lyrics fetching
+# Lyrics route
 @app.get("/lyrics")
 def lyrics(song: str = Query(...)):
-    cleanup_files()
     try:
         search_url = f"ytsearch1:{song} lyrics"
         output_path = "%(title)s.%(ext)s"
-
         cmd = [
             "yt-dlp", "--cookies", COOKIES, "--write-auto-sub", "--sub-lang", "en",
             "--skip-download", "-o", output_path, search_url
@@ -96,12 +84,35 @@ def lyrics(song: str = Query(...)):
 
         lyrics_text = parse_subtitles(subtitle_file)
         os.remove(subtitle_file)
-
         return {"lyrics": lyrics_text}
     except Exception as e:
         return {"lyrics": f"Error: {e}"}
 
-# OCR to extract text from uploaded image
+# Chat route using external GPT-3.5 API with image generation support
+@app.post("/chat")
+async def chat(prompt: str = Form(...)):
+    try:
+        params = {
+            "q": prompt,
+            "apikey": API_KEY
+        }
+        response = requests.get(API_BASE, params=params)
+        data = response.json()
+
+        # Check if response includes image URLs
+        if "image" in data:
+            # Return text + image URLs
+            return {
+                "response": data.get("response", ""),
+                "images": data.get("image")  # could be a list or single URL
+            }
+        else:
+            # Just text reply
+            return {"response": data.get("response", "Sorry, no reply from API.")}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+# OCR route to extract text from uploaded image
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...)):
     try:
@@ -111,29 +122,5 @@ async def ocr_image(file: UploadFile = File(...)):
         if not text:
             text = "No text found in the image."
         return {"extracted_text": text}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
-
-# Chatbot using Kaiz API GPT-3.5 with image generation
-@app.post("/chat")
-async def chat(prompt: str = Form(...)):
-    try:
-        params = {
-            "q": prompt,
-            "apikey": KAIZ_API_KEY
-        }
-        response = requests.get(KAIZ_API_URL, params=params)
-        if response.status_code == 200:
-            data = response.json()
-            text_response = data.get("response") or ""
-            image_url = data.get("image")  # If API returns an image URL
-
-            result = {"response": text_response}
-            if image_url:
-                result["image_url"] = image_url
-
-            return result
-        else:
-            return JSONResponse(status_code=500, content={"error": "AI API request failed."})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
