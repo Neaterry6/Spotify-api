@@ -1,7 +1,5 @@
 fastapi
 uvicorn
-requests
+yt-dlp
 beautifulsoup4
-spotdl
-aiofiles
-python-dotenv
+requests
