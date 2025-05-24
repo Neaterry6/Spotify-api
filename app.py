@@ -1,126 +1,102 @@
-from fastapi import FastAPI, Query, File, UploadFile, Form
+from fastapi import FastAPI, Query, File, UploadFile, Form, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 import requests
+import aiofiles
+import subprocess
+import asyncio
+import os
+from bs4 import BeautifulSoup
 from PIL import Image
 import pytesseract
 import io
-import subprocess
-import os
 
 app = FastAPI()
 
-COOKIES = "cookies.txt"  # your yt-dlp cookies file path
+COOKIES = "cookies.txt"
 API_KEY = "423c0305-cf71-48dc-b57f-693399ce53d1"
 API_BASE = "https://kaiz-apis.gleeze.com/api/gpt-3.5"
 
+# Run subprocess asynchronously
+async def run_command(cmd):
+    process = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, stderr = await process.communicate()
+    return stdout, stderr, process.returncode
+
 # Download audio from YouTube
 @app.get("/play")
-def play(song: str = Query(...)):
-    try:
-        search_url = f"ytsearch1:{song}"
-        output_path = "audio.%(ext)s"
-        cmd = [
-            "yt-dlp", "--cookies", COOKIES, "-x", "--audio-format", "mp3",
-            "-o", output_path, search_url
-        ]
-        subprocess.run(cmd, check=True)
-        mp3_file = next((f for f in os.listdir() if f.endswith(".mp3")), None)
-        if mp3_file:
-            return FileResponse(mp3_file, media_type="audio/mpeg", filename=mp3_file)
-        return {"result": "Audio download failed."}
-    except Exception as e:
-        return {"result": f"Error: {e}"}
+async def play(song: str = Query(...)):
+    search_url = f"ytsearch1:{song}"
+    output_path = "audio.%(ext)s"
+    cmd = ["yt-dlp", "--cookies", COOKIES, "-x", "--audio-format", "mp3", "-o", output_path, search_url]
+
+    stdout, stderr, exit_code = await run_command(cmd)
+    if exit_code != 0:
+        return {"error": stderr.decode()}
+
+    mp3_file = next((f for f in os.listdir() if f.endswith(".mp3")), None)
+    return FileResponse(mp3_file, media_type="audio/mpeg", filename=mp3_file) if mp3_file else {"error": "Download failed."}
 
 # Download video from YouTube
 @app.get("/video")
-def video(search: str = Query(...)):
-    try:
-        search_url = f"ytsearch1:{search}"
-        output_path = "video.%(ext)s"
-        cmd = [
-            "yt-dlp", "--cookies", COOKIES, "-f", "mp4", "-o", output_path, search_url
-        ]
-        subprocess.run(cmd, check=True)
-        video_file = next((f for f in os.listdir() if f.endswith(".mp4")), None)
-        if video_file:
-            return FileResponse(video_file, media_type="video/mp4", filename=video_file)
-        return {"result": "Video download failed."}
-    except Exception as e:
-        return {"result": f"Error: {e}"}
+async def video(search: str = Query(...)):
+    search_url = f"ytsearch1:{search}"
+    output_path = "video.%(ext)s"
+    cmd = ["yt-dlp", "--cookies", COOKIES, "-f", "mp4", "-o", output_path, search_url]
 
-# Lyrics route
+    stdout, stderr, exit_code = await run_command(cmd)
+    if exit_code != 0:
+        return {"error": stderr.decode()}
+
+    video_file = next((f for f in os.listdir() if f.endswith(".mp4")), None)
+    return FileResponse(video_file, media_type="video/mp4", filename=video_file) if video_file else {"error": "Download failed."}
+
+# Scrape lyrics without API key
 @app.get("/lyrics")
 def lyrics(song: str = Query(...)):
-    try:
-        search_url = f"ytsearch1:{song} lyrics"
-        output_path = "%(title)s.%(ext)s"
-        cmd = [
-            "yt-dlp", "--cookies", COOKIES, "--write-auto-sub", "--sub-lang", "en",
-            "--skip-download", "-o", output_path, search_url
-        ]
-        subprocess.run(cmd, check=True)
+    search_url = f"https://www.lyrics.com/serp.php?st={song.replace(' ', '+')}"
+    response = requests.get(search_url)
+    if response.status_code != 200:
+        return {"error": "Lyrics site unreachable."}
 
-        subtitle_file = None
-        for ext in [".en.vtt", ".en.srt", ".vtt", ".srt"]:
-            candidates = [f for f in os.listdir() if f.endswith(ext)]
-            if candidates:
-                subtitle_file = candidates[0]
-                break
+    soup = BeautifulSoup(response.text, "html.parser")
+    lyrics_div = soup.find("pre", class_="lyric-body")
+    return {"lyrics": lyrics_div.text.strip() if lyrics_div else "Lyrics not found."}
 
-        if not subtitle_file:
-            return {"lyrics": "No subtitles/lyrics found for this song."}
-
-        def parse_subtitles(file_path):
-            with open(file_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            text = ""
-            for line in lines:
-                line = line.strip()
-                if line == "" or line.startswith("WEBVTT") or line[0].isdigit() or "-->" in line:
-                    continue
-                text += line + " "
-            return text.strip()
-
-        lyrics_text = parse_subtitles(subtitle_file)
-        os.remove(subtitle_file)
-        return {"lyrics": lyrics_text}
-    except Exception as e:
-        return {"lyrics": f"Error: {e}"}
-
-# Chat route using external GPT-3.5 API with image generation support
+# Chatbot that sends actual image files instead of links
 @app.api_route("/chat", methods=["GET", "POST"])
-async def chat(prompt: str = Query(None), prompt_form: str = Form(None)):
+async def chat(prompt: str = Query(None), prompt_form: str = Form(None), background_tasks: BackgroundTasks = None):
     try:
         prompt_value = prompt or prompt_form
         if not prompt_value:
-            return JSONResponse(status_code=400, content={"error": "No prompt provided."})
+            return {"error": "No prompt provided."}
 
-        params = {
-            "q": prompt_value,
-            "apikey": API_KEY
-        }
+        params = {"q": prompt_value, "apikey": API_KEY}
         response = requests.get(API_BASE, params=params)
         data = response.json()
 
         if "image" in data:
-            return {
-                "response": data.get("response", ""),
-                "images": data.get("image")
-            }
+            image_url = data["image"]
+            image_response = requests.get(image_url)
+            file_name = "generated_image.jpg"
+            
+            async with aiofiles.open(file_name, "wb") as f:
+                await f.write(image_response.content)
+
+            return FileResponse(file_name, media_type="image/jpeg", filename=file_name)
         else:
             return {"response": data.get("response", "Sorry, no reply from API.")}
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        return {"error": str(e)}
 
-# OCR route to extract text from uploaded image
+# Extract text from uploaded image
 @app.post("/ocr")
 async def ocr_image(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         image = Image.open(io.BytesIO(contents))
         text = pytesseract.image_to_string(image).strip()
-        if not text:
-            text = "No text found in the image."
-        return {"extracted_text": text}
+        return {"extracted_text": text if text else "No text found in the image."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
