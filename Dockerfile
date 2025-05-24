@@ -1,29 +1,26 @@
-# Use official Python slim image
+# Use official slim Python image
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies for yt-dlp, tesseract, ffmpeg, pillow, etc.
-RUN apt-get update && apt-get install -y \
+# Install only required system dependencies (minimizing build size)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     tesseract-ocr \
     libtesseract-dev \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (to leverage Docker cache)
+# Optimize pip installations
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
-# Upgrade pip and install Python dependencies
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy all source code
+# Copy the application files
 COPY . .
 
-# Expose port 8000
+# Expose FastAPI’s default port
 EXPOSE 8000
 
-# Start the FastAPI app with Uvicorn
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Set Uvicorn to run efficiently with workers
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
